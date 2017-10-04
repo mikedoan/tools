@@ -186,7 +186,7 @@ def translations_to_xml(translations):
         xml.append('</sense>')
     return xml
 
-def write_output(input_file, base_dir, tei_skeleton, body_xml):
+def write_output(base_dir, tei_skeleton, body_xml):
     """This writes the dictionary import into the specified directory."""
     print("Writing TEI dictionary…")
     with open(tei_skeleton, 'r', encoding='utf-8') as f:
@@ -213,9 +213,6 @@ def write_output(input_file, base_dir, tei_skeleton, body_xml):
                 })
             with urllib.request.urlopen(req) as u:
                 f.write(u.read())
-
-    # write Makefile
-    fd_import.output.mk_makefile(base_dir, ['epo-eng.tei', 'epo-eng.patch'])
 
 
 def main(input_file, tei_skeleton, output_directory):
@@ -249,7 +246,7 @@ def main(input_file, tei_skeleton, output_directory):
             xml.append('<gramGrp>\n%s\n</gramGrp>' % gram)
         xml += translations_to_xml(trans) + ['</entry>']
 
-    write_output(input_file, output_directory, tei_skeleton, '\n'.join(xml))
+    write_output(output_directory, tei_skeleton, '\n'.join(xml))
     print("Done. Now it's time to copy DTD, CSS and RNG and validate the dictionary.")
 
 def check_args():
@@ -257,11 +254,11 @@ def check_args():
     if len(sys.argv) != 4:
         print("Error: invalid command line parameters.")
         import textwrap
-        print("Usage: %s <INPUT_FILE> <TEI SKELETON> <OUTPUT_DIRECTORY>\n    "\
+        print("Usage: %s <INPUT_FILE> <TEI [SKELETON]> <OUTPUT_DIRECTORY>\n    "\
                 % sys.argv[0], end="")
         print('\n    '.join(textwrap.wrap(("TEI SKELETON has to be a FreeDict TEI file, with an empty "
-                "body tag. The opening and closing body tags have to be on "
-                "separate lines.\n"
+                "body tag. The body tag has to exist, but may be both empty "
+                "or filled.\n"
                 "The output directory may exist and files will be overwritten, "
                 "as necessary."), 78)))
         sys.exit(1)

@@ -32,7 +32,8 @@ def attach_gramgrp(parent, gramgrp):
     if gramgrp.pos:
         mknode(gram, 'pos', text=gramgrp.pos)
     if gramgrp.gender:
-        mknode(gram, 'gen', text=gramgrp.gender)
+        for gen in gramgrp.gender:
+            mknode(gram, 'gen', text=gen)
     if gramgrp.number:
         mknode(gram, 'number', text=gramgrp.number)
     if gramgrp.usg:

@@ -32,8 +32,9 @@ class DeuEngParser(AbstractParser):
                 if token in self.NUMBER:
                     g.number = self.NUMBER[token]
                 elif token in self.GENDER:
-                    g.add_child(GramGrp(gender=token))
+                    g.gender.append(token)
                 elif token in self.POS:
+                    # ToDo: make POS work with multiple items, a list as gender
                     g.pos = None
                     g.add_child(GramGrp(pos=token))
                 elif len(token) > 3 and ' ' in token: # usage hint
@@ -43,9 +44,9 @@ class DeuEngParser(AbstractParser):
             return g
         return None
 
-    def handle_brace(self, node_class, chunk):
+    def handle_brace(self, outer, chunk):
         text = chunk[1].rstrip().rstrip('.')
-        # handle ; first, might contain , as well and that's checked by
+        # handle semicolon first, might contain , as well and that's checked by
         # recognize_gender_or_number
         if ';' in text:
             tokens = [t.strip() for t in text.split(';')]
@@ -55,9 +56,7 @@ class DeuEngParser(AbstractParser):
                     g.add_child(GramGrp(pos=t))
                 outer.add_child(g)
             elif len(tokens) == 2: # past participle, etc. of a verb
-                f = node_class(text=tokens)
-                f.add_attr("type", "infl")
-                return f
+                return self.mk_term(outer, tokens, attrs={'type': 'infl'})
             else:
                 # try to find case hints, etc.
                 g = GramGrp()
@@ -103,62 +102,144 @@ class DeuEngParser(AbstractParser):
             print(NotImplementedError(chunk))
             return chunk
 
-    def handle_paren(self, chunks):
+    #pylint: disable=too-many-arguments
+    def mk_term(self, outer, term, gram=None, new_form=False, attrs=None):
+        """Create a translation for sense or add headword to orth."""
+        #pylint: disable=redefined-variable-type
+        relevant_node = outer
+        if isinstance(outer, Form):
+            if new_form:
+                relevant_node = Form(term)
+                outer.add_child(relevant_node)
+            else:
+                outer.add_text(term)
+            if gram:
+                relevant_node.add_child(gram)
+        else: # handle translations
+            relevant_node = Translation(term)
+            if gram:
+                relevant_node.add_child(gram)
+            outer.add_child(relevant_node)
+        if attrs: # set attributes
+            for k, v in attrs.items():
+                relevant_node.add_attr(k, v)
+        return relevant_node # optional return to reuse node
+
+    def handle_paren(self, parent, chunks, idx):
+        """Check for certain chunk arrangements to discover informal phrase
+        abbreviations and other human-intuitive encodings of words and
+        parenthesis.
+        This function should discover and split such chunk arrangements. It
+        returns a tuple containing the new index and a list of nodes to
+        attach."""
+        # ^v: idx is used to detect whether changes to the outer node have been
+        start = idx
+        # made
+        # helper functions
         isword = lambda i: len(chunks[i]) == 2 and chunks[i][0] == ChunkType.Word
         isparen = lambda i: len(chunks[i]) == 2 and chunks[i][0] == ChunkType.Paren
-        idx = 0 # index into chunks
         enough_chunks_left = lambda num: idx + num < len(chunks)
-        while idx < len(chunks):
-            # "foo (bar) baz (explanation)"
-            if enough_chunks_left(4) and isword(idx) and isparen(idx+1) and \
+        # format: "word m/f"; gender info
+        if enough_chunks_left(2):
+            if isword(idx) and isparen(idx+1) and chunks[idx+1][1] in ('m/f', 'm/f.'):
+                gram = GramGrp(gender=['m', 'f'])
+                self.mk_term(parent, chunks[idx][1], gram=gram)
+                idx += 2
+            # format: "term (collocate" and "term (explanation blah blah)"
+            elif isword(idx) and isparen(idx+1):
+                if ' ' in chunks[idx+1][1] or len(chunks[idx+1][1]) > 3:
+                    node = self.mk_term(parent, chunks[idx][1], new_form=True)
+                    usg = Usage(chunks[idx+1][1])
+                    usg.add_attr('type', "hint")
+                    node.add_child(usg)
+                else: # it's a collocate
+                    node = self.mk_term(parent, chunks[idx][1], new_form=True)
+                    node.add_child(GramGrp(colloc=chunks[idx+1][1]))
+                idx += 2 # last two chunks have been processed
+            elif isparen(idx) and isparen(idx+1):
+                parent.add_child(Usage(
+                        '%s, %s' % (chunks[idx][1], chunks[idx+1][1])))
+                idx += 2
+        # format: "foo (bar) baz (explanation)"
+        elif enough_chunks_left(4) and isword(idx) and isparen(idx+1) and \
                     isword(idx+2) and isparen(idx+3):
-                idx += 4
-            else:
+            # add term without chunk[idx+1] and again with it
+            self.mk_term(parent, '%s %s' % (chunks[idx][1], chunks[idx+2][1]))
+            self.mk_term(parent, '%s %s %s' % (chunks[idx][1], chunks[idx+1][1],
+                chunks[idx+2][1]))
+            parent.add_child(Definition(chunks[idx+3][1]))
+            idx += 4
+        if start == idx: # nothing has changed, because nothing matched
+            text = []
+            while idx < len(chunks) and (isword(idx) or isparen(idx)):
+                if isparen(idx):
+                    text.append('(%s)' % chunks[idx][1])
+                else:
+                    text.append(chunks[idx][1])
                 idx += 1
+            self.mk_term(parent, ' '.join(text))
+            return idx
+        else:
+            return idx
 
     def handle_unprocessed(self, outer):
         while outer.get_children() and isinstance(outer.get_children()[0],
                 Unprocessed):
+            # unhandled chunks are in the text attribute
             unprocessed = outer.get_children().pop(0).get_text()
-            required_inner = (Form if outer.__class__ == Form else Translation)
             start = 0
-            while start <= (len(unprocessed)-1):
+            # iterate over chunks with fast-forward option
+            while start < len(unprocessed):
                 chunk = unprocessed[start]
                 if chunk[0] == ChunkType.Brace:
-                    node = self.handle_brace(required_inner, chunk)
+                    ret_remove_me = self.handle_brace(outer, chunk)
                     # ToDo: that if should be useless, but not all braces are parsed yet
-                    if not isinstance(node, (tuple)):
-                        outer.add_child(node)
-                    else:
+                    if isinstance(ret_remove_me, (tuple)):
                         print("ignoring",chunk)
                 elif chunk[0] == ChunkType.Bracket:
                     outer.add_child(Usage((chunk[1],)))
-                # these are really, really hard to parse, therefore no parsing is tone
-                # at all
-                elif chunk[0] == ChunkType.Paren or chunk[0]  == ChunkType.Word:
-                    start = self.attach_merged_text_and_paren(outer, unprocessed, start)
-                elif chunk[0] == ChunkType.Slash: # abbreviation
-                    f = required_inner([chunk[1]])
-                    f.add_attr("type", "abbr")
-                    outer.add_child(f)
                 else:
-                    raise ParserError("Unhandled chunk: " + repr(chunk))
+                    newstart = getattr(self, 'handle_' + chunk[0].name.lower())\
+                            (outer, unprocessed, start)
+                    if newstart:
+                        start = newstart -1
                 start += 1
         return outer
 
-    def attach_merged_text_and_paren(self, outer, chunks, start):
-        end = start
-        reconstructed = []
-        while end < len(chunks) and chunks[end][0] in (ChunkType.Word,
-                ChunkType.Paren):
-            reconstructed.append(chunks[end][1] if chunks[end][0] == ChunkType.Word
-                    else '(%s)' % chunks[end][1])
-            end += 1
-        if isinstance(outer, (Form,)):
-            outer.add_text(' '.join(reconstructed))
-        else:
-            outer.add_child(Translation([' '.join(reconstructed)]))
-        return end - 1
+    def handle_word(self, x, y, z):
+        """Delegate word to handle_paren, with which it is deeply
+        intertwined."""
+        self.handle_paren(x, y, z)
+
+    def handle_slash(self, outer, chunks, index):
+        """Handle expressions enclosed in /foo/. The issue is that they might
+        contain a abbreviation, a mnemonic, be a parser error like "foo/bar/baz"
+        or could be part of a problematic markup."""
+        chunk = chunks[index]
+        if len(chunk[1]) < 2: # mnemonic or similar, ungroupable
+            return
+
+        # check for abbreviations
+        counted = 0 # check for upper case first
+        for c in chunk[1]:
+            if c.isupper():
+                counted += 1
+            if counted >= 2:
+                break
+
+        # abbreviations start with upper case or end with dot
+        if counted >= 2 or '.' in chunk[1] or len(chunk[1]) < 5:
+            self.mk_term(outer, chunk[1], new_form=True, attrs={"type": "abbr"})
+        else: # it must have been a problematic markup
+            child = None
+            for ch in reversed(outer.get_children()):
+                if isinstance(ch, (Form, Translation)):
+                    child = ch
+                    break
+            if child:
+                child.get_text()[-1] += ' /%s/' % chunk[1]
+            else:
+                self.mk_term(outer, '/%s/' % chunk[1])
 
     def simplify_markup(self, node):
         return node
@@ -172,10 +253,7 @@ class SpaDeuParser(DeuEngParser):
     def handle_brace(self, node_class, chunk):
         text = chunk[1].rstrip().rstrip('.')
         if text == 'mf' or text == 'fm':
-            g = GramGrp(pos='n')
-            for c in text:
-                g.add_child(GramGrp(gender=c))
-            return g
+            return GramGrp(pos='n', gender=list(text))
         elif text == 's': # 'that's gender n
             return super().handle_brace(node_class, (chunk[0], 'n'))
         else:
@@ -222,10 +300,13 @@ class SpaDeuParser(DeuEngParser):
         return entry
 
 def any_pos(node, pos):
+    """Search for a given part of speech recursively in the current and children
+    nodes."""
     node_pos = False
     if isinstance(node, (GramGrp)):
         node_pos = node.pos == pos
     for child in node.get_children():
         node_pos = node_pos or any_pos(child, pos)
     return node_pos
+
 

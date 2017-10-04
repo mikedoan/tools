@@ -14,7 +14,15 @@ class ParserError(Exception):
 
 
 class SemNode:
-    """Semantic node, docs."""
+    """Semantic node is  a node roughly related to the TEI encoding, but
+    slightly more abstract. It allows the programmer to encode information,
+    without caring about the exact XML layout. At least that is the theory.
+    A node may have children and the type of the children can be controlled via
+    the allowed_children class attribute, empty by default.
+    Each node may contain text and if accept_multiple_text_entries is set, the
+    node will handle each string as a separate entry. Form for instance can have
+    multiple orth's, each string will become a separate orth. allowed_attributes
+    allows the specification of additionally attributes, most commonly "type"."""
     allowed_children = () # no children allowed by default
     accept_multiple_text_entries = False
     allowed_attributes = []
@@ -25,8 +33,10 @@ class SemNode:
             if self.accept_multiple_text_entries:
                 if isinstance(text, (list, tuple)):
                     self.__text = text
+                elif isinstance(text, str):
+                    self.__text = [text]
                 else:
-                    raise TypeError("%s excepts only a tuple or a list" \
+                    raise TypeError("%s excepts only a string, tuple or list" \
                             " of strings as 'text', got %s." % \
                             (self.__class__.__name__, repr(text)))
             else:
@@ -116,19 +126,26 @@ class Unprocessed(SemNode):
         del self.get_text()[index]
 
 class GramGrp(SemNode):
-    def __init__(self, pos=None, gender=None, number=None):
+    def __init__(self, pos=None, gender=None, number=None, colloc=None):
         super().__init__()
         self.pos = pos
-        self.gender = gender
+        self.colloc = colloc
+        self.gender = []
+        if gender:
+            if not isinstance(gender, (list, tuple)):
+                self.gender = [gender]
+            else:
+                self.gender = gender
         self.number = number
         self.usg = None
 
     def __repr__(self):
         tks = list(filter(None,
             ((self.pos if self.pos else ''),
-                (self.gender if self.gender else ''),
                 (self.number if self.number else ''),
                 (self.usg if self.usg else ''))))
+        if self.gender:
+            tks.extend(self.gender)
         return '<%s (%s)>' % (self.__class__.__name__.split('.')[-1],
                 ', '.join(tks))
 
@@ -137,9 +154,11 @@ class Definition(SemNode):
 
 class Translation(SemNode):
     accept_multiple_text_entries = True
+    allowed_attributes = ('type',)
 
 class Usage(SemNode):
     accept_multiple_text_entries = True
+    allowed_attributes = ['type']
 
 class Sense(SemNode):
     allowed_children = () # see end of module

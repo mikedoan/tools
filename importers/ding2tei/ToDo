@@ -1,4 +1,7 @@
+    simplify: wenn erstes nur ein wort und andere sind mehrere Wörter, dann sind
+    es oft Beispiele
 - m/f steht oft ohne {}; Fehler melden
+encoding korrekt in TEI von: (vorgebrachter) Grund {m}; Begründung {f} | aus rechtlichen Gründen | aufgrund/auf Grund etw. {prp + Gen.} | etw. mit der Begründung verweigern, dass … :: grounds | on legal grounds | on grounds of sth. | to refuse sth. on the grounds that …
 -   3136: straying /
 -   [orig source]: 118917: are translations correctly parsed
 -   multiple pos:, currently:
@@ -11,3 +14,4 @@
         </gramGrp>
     </gramGrp>
 -   doc (more likely than tests)
+test spa-deu afterwards
