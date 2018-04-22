@@ -4,7 +4,7 @@ import re
 
 # forgive me, but I actually really need all of them
 from dictstructure import AbstractParser, ChunkType, Definition, Form, \
-        GramGrp, ParserError, Sense, Translation, Unprocessed, Usage
+        GramGrp, ParserError, SemNode, Sense, Translation, Unprocessed, Usage
 
 class DeuEngParser(AbstractParser):
     GENDER = ['n', 'm', 'f'] # ontology?
@@ -14,93 +14,100 @@ class DeuEngParser(AbstractParser):
             'n': 'n', 'num': 'num', 'prp': 'prep', 'prep': 'prep',
             'prn': 'pron', 'ppron': 'pron', 'pron': 'pron',
             'v': 'v', 'vi': 'vi', 'vr': 'vr', 'vt': 'vt', 'vti': 'vti'}
-    CASE_RGX = re.compile(r"""([A-Z|a-z]\??)? # optional collocate with optional question mark
-        \+\s*(Gen|Dat|Akk)\.? # grammatical case
+    CASE_RGX = re.compile(r"""([A-Z|a-z]\??)?\s* # optional collocate with optional question mark
+        \+?\s*(Gen|Dat|Akk|conj)\.? # grammatical case
             /?\s*(.*)$ # optional preposition/collocate
         """, re.VERBOSE)
 
-    def recognize_gender_or_number(self, text):
+    def handle_single_token_in_brace(self, outer, text):
         if text in self.GENDER:
-            return GramGrp(pos='n', gender=text)
+            return (GramGrp(pos='n', gender=text),)
         elif text in self.NUMBER:
-            return GramGrp(pos='n', number=self.NUMBER[text])
-        # comma is either for multiple genders, for a gender and a "pl"
-        # declaration or rarely for different verb forms
-        elif ',' in text:
-            g = GramGrp(pos='n') # it's a noun
-            for token in (t.strip() for t in text.split(',')):
-                if token in self.NUMBER:
-                    g.number = self.NUMBER[token]
-                elif token in self.GENDER:
-                    g.gender.append(token)
-                elif token in self.POS:
-                    # ToDo: make POS work with multiple items, a list as gender
-                    g.pos = None
-                    g.add_child(GramGrp(pos=token))
-                elif len(token) > 3 and ' ' in token: # usage hint
-                    g.usg = token
-                else:
-                    raise ParserError("Unknown token in {%s}" % text)
-            return g
-        return None
-
-    def handle_brace(self, outer, chunk):
-        text = chunk[1].rstrip().rstrip('.')
-        # handle semicolon first, might contain , as well and that's checked by
-        # recognize_gender_or_number
-        if ';' in text:
-            tokens = [t.strip() for t in text.split(';')]
-            if all(t in self.POS for t in tokens):
-                g = GramGrp()
-                for t in tokens:
-                    g.add_child(GramGrp(pos=t))
-                outer.add_child(g)
-            elif len(tokens) == 2: # past participle, etc. of a verb
-                return self.mk_term(outer, tokens, attrs={'type': 'infl'})
-            else:
-                # try to find case hints, etc.
-                g = GramGrp()
-                for token in tokens:
-                    if token in self.POS:
-                        g.pos = token
-                        continue
-
-                    match = self.CASE_RGX.search(token)
-                    if match:
-                        match = match.groups()
-                        usg = Usage(match[1])
-                        usg.add_attr('type', 'gram')
-                        outer.add_child(usg)
-                        for colloc in (x for x in (match[0], match[2]) if x):
-                            if colloc in self.POS:
-                                g.pos = self.POS[colloc] # missing semicolon to POS
-                            else:
-                                g.colloc = colloc
-                    else:
-                        # ToDo: raise
-                        print(ParserError("Couldn't recognize expression: {%s}" % text))
-                        return # ToDo, remove, dummy
-                outer.add_child(g)
-
-        gram = self.recognize_gender_or_number(text)
-        if gram:
-            return gram
-        elif '/' in text: # only seen that for vt/vi
-            tokens = text.split('/' if '/' in text else ';')
-            if not all(t.strip() in self.POS for t in tokens):
-                # ToDo: when stabilized, make it raise
-                print(ParserError("Encountered unknown (POS) token {%s}" % repr(chunk)))
-                return chunk
-            g = GramGrp() # no info, only children have
-            for pos in (p for p in tokens if p in self.POS):
-                g.add_child(GramGrp(pos=self.POS[pos.strip()]))
-            return g
-        elif text.strip() in self.POS:
-            return GramGrp(pos=self.POS[text])
+            return (GramGrp(pos='n', number=self.NUMBER[text]),)
+        elif text in self.POS:
+            return (GramGrp(pos=self.POS[text]),)
+        # ToDo: use subc here
+        elif re.search(r'^\w+\s+\+\s+\w+', text):
+            pos, subc = [p.strip() for p in text.split('+')]
+            return (GramGrp(pos=self.POS[pos], subc=subc))
+        elif self.CASE_RGX.search(text):
+            g = GramGrp()
+            self.handle_case_in_brace(outer, g, text)
+            return (g,)
         else:
-            # ToDo: make it raise as soon as all questions about it resolved
-            print(NotImplementedError(chunk))
-            return chunk
+            raise ParserError('unrecognized token "{%s}"' % text)
+
+    def handle_comma_in_brace(self, text):
+        """comma is either for multiple genders, for a gender and a "pl"
+        declaration or rarely for different verb forms."""
+        g = GramGrp(pos='n') # it's a noun
+        for token in (t.strip() for t in text.split(',')):
+            if token in self.NUMBER:
+                g.number = self.NUMBER[token]
+            elif token in self.GENDER:
+                g.add_child(GramGrp(gender=token))
+            elif token in self.POS:
+                g.pos = token
+            elif len(token) > 3 and ' ' in token: # usage hint
+                g.usg = token
+            else:
+                raise ParserError("Unknown token in {%s}" % text)
+        return (g,)
+
+
+    def handle_brace(self, node_class, outer, chunk):
+        nodes = []
+        text = chunk[1].rstrip('. ')
+        # semicolon takes precedence over comma and others
+        if ';' in text:
+            nodes.extend(self.handle_semicolon_in_brace(node_class, outer, text))
+        elif ',' in text:
+            nodes.extend(self.handle_comma_in_brace(text))
+        elif '/' in text: # only seen that for vt/vi
+            tokens = text.split('/')
+            if all(t.strip() in self.POS for t in tokens):
+                nodes.extend(GramGrp(children=\
+                    [GramGrp(pos=self.POS[pos.strip()]) for pos in tokens]))
+            else:
+                print("ToDo: remove me")
+                #raise ParserError("Encountered unknown (POS) token {%s}" % repr(chunk))
+
+        else:
+            nodes.extend(self.handle_single_token_in_brace(outer, text))
+        return nodes
+
+    def handle_semicolon_in_brace(self, node_class, outer, text):
+        tokens = [t.strip() for t in text.split(';')]
+        if all(t in self.POS for t in tokens):
+            return (GramGrp(children=[GramGrp(pos=t) for t in tokens]),)
+        elif len(tokens) == 2: # past participle, etc. of a verb
+            f = node_class(text=tokens)
+            f.add_attr("type", "infl")
+            return (f,)
+        else:
+            # try to find case hints, etc.
+            g = GramGrp()
+            for token in tokens:
+                if token in self.POS:
+                    g.pos = token
+                    continue
+
+                if self.CASE_RGX.search(token):
+                    # note: this method appends to `outer` and *changes* `g`
+                    self.handle_case_in_brace(outer, g, token)
+                else:
+                    raise ParserError("Couldn't recognize expression: {%s}" % text)
+            return (g,)
+
+    def handle_case_in_brace(self, outer, g, token):
+        match = self.CASE_RGX.search(token).groups()
+        outer.add_child(Usage(match[1], attrs={'type': 'gram'}))
+        for colloc in (x for x in (match[0], match[2]) if x):
+            if colloc in self.POS:
+                g.pos = self.POS[colloc] # missing semicolon to POS
+            else:
+                g.colloc = colloc
+
 
     #pylint: disable=too-many-arguments
     def mk_term(self, outer, term, gram=None, new_form=False, attrs=None):
@@ -187,15 +194,22 @@ class DeuEngParser(AbstractParser):
                 Unprocessed):
             # unhandled chunks are in the text attribute
             unprocessed = outer.get_children().pop(0).get_text()
+            required_inner = (Form if outer.__class__ == Form else Translation)
             start = 0
             # iterate over chunks with fast-forward option
             while start < len(unprocessed):
                 chunk = unprocessed[start]
                 if chunk[0] == ChunkType.Brace:
-                    ret_remove_me = self.handle_brace(outer, chunk)
-                    # ToDo: that if should be useless, but not all braces are parsed yet
-                    if isinstance(ret_remove_me, (tuple)):
-                        print("ignoring",chunk)
+                    try:
+                        nodes = self.handle_brace(required_inner, outer, chunk)
+                    except ParserError as p:
+                        raise ParserError(p.args[0], 'Chunk parsed: %s' % repr(chunk))
+                    # ToDo: that should be useless, but not all braces are parsed yet
+                    for node in nodes:
+                        if isinstance(node, (SemNode)):
+                            outer.add_child(node)
+                        else:
+                            print("ignoring",chunk)
                 elif chunk[0] == ChunkType.Bracket:
                     outer.add_child(Usage((chunk[1],)))
                 else:
@@ -250,14 +264,14 @@ class SpaDeuParser(DeuEngParser):
         self.POS['Demonstrativpronomen'] = 'pron'
 
     # handle a few grammatical things differently
-    def handle_brace(self, node_class, chunk):
+    def handle_brace(self, node_class, outer, chunk):
         text = chunk[1].rstrip().rstrip('.')
         if text == 'mf' or text == 'fm':
             return GramGrp(pos='n', gender=list(text))
         elif text == 's': # 'that's gender n
-            return super().handle_brace(node_class, (chunk[0], 'n'))
+            return super().handle_brace(node_class, outer, (chunk[0], 'n'))
         else:
-            return super().handle_brace(node_class, chunk)
+            return super().handle_brace(node_class, outer, chunk)
 
     def simplify_markup(self, entry):
         getall = lambda x, y: [c for c in enumerate(x.get_children()) if

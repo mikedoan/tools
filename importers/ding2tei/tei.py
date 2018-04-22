@@ -38,6 +38,8 @@ def attach_gramgrp(parent, gramgrp):
         mknode(gram, 'number', text=gramgrp.number)
     if gramgrp.usg:
         mknode(gram, 'usg', text=gramgrp.usg)
+    if gramgrp.subc:
+        mknode(gram, 'subc', text=gramgrp.subc)
     return gram
 
 def attach_form(parent, form):

@@ -27,7 +27,7 @@ class SemNode:
     accept_multiple_text_entries = False
     allowed_attributes = []
 
-    def __init__(self, text=None):
+    def __init__(self, text=None, attrs=None, children=None):
         super().__init__()
         if text:
             if self.accept_multiple_text_entries:
@@ -49,6 +49,11 @@ class SemNode:
             self.__text = []
         self.__children = []
         self.__attrs = {}
+        if attrs:
+            for key, value in attrs.items():
+                self.add_attr(key, value)
+        if children:
+            self.add_children(children)
 
     def get_text(self):
         """Return a list of text (tokens) of a node."""
@@ -95,6 +100,10 @@ class SemNode:
                     (self.__class__.__name__, type(child), allowed))
         self.__children.append(child)
 
+    def add_children(self, children):
+        for child in children:
+            self.add_child(child)
+
     def num_children(self):
         return len(self.__children)
 
@@ -126,8 +135,9 @@ class Unprocessed(SemNode):
         del self.get_text()[index]
 
 class GramGrp(SemNode):
-    def __init__(self, pos=None, gender=None, number=None, colloc=None):
-        super().__init__()
+    def __init__(self, pos=None, gender=None, number=None, colloc=None,
+            subc=None, children=None):
+        super().__init__(children=children)
         self.pos = pos
         self.colloc = colloc
         self.gender = []
@@ -137,12 +147,14 @@ class GramGrp(SemNode):
             else:
                 self.gender = gender
         self.number = number
+        self.subc = subc
         self.usg = None
 
     def __repr__(self):
         tks = list(filter(None,
             ((self.pos if self.pos else ''),
                 (self.number if self.number else ''),
+                (self.subc if self.subc else ''),
                 (self.usg if self.usg else ''))))
         if self.gender:
             tks.extend(self.gender)
