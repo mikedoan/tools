@@ -12,10 +12,12 @@ class DeuEngParser(AbstractParser):
     POS = {'adj':'adj', 'adv': 'adv', 'art': 'art', 'conj': 'conj',
             'idiom': 'phrase', 'interj': 'int',
             'n': 'n', 'num': 'num', 'prp': 'prep', 'prep': 'prep',
-            'prn': 'pron', 'ppron': 'pron', 'pron': 'pron',
+            'relativ.pron': 'pron', 'prn': 'pron', 'ppron': 'pron',
+            'pron': 'pron', 'Quantifikator': 'Determinativ',
+            'pron interrog': 'pron',
             'v': 'v', 'vi': 'vi', 'vr': 'vr', 'vt': 'vt', 'vti': 'vti'}
     CASE_RGX = re.compile(r"""([A-Z|a-z]\??)?\s* # optional collocate with optional question mark
-        \+?\s*(Gen|Dat|Akk|conj)\.? # grammatical case
+        \+?\s*(Gen|Dat|Akk|conj|Superlativ)\.? # grammatical case
             /?\s*(.*)$ # optional preposition/collocate
         """, re.VERBOSE)
 
@@ -26,7 +28,6 @@ class DeuEngParser(AbstractParser):
             return (GramGrp(pos='n', number=self.NUMBER[text]),)
         elif text in self.POS:
             return (GramGrp(pos=self.POS[text]),)
-        # ToDo: use subc here
         elif re.search(r'^\w+\s+\+\s+\w+', text):
             pos, subc = [p.strip() for p in text.split('+')]
             return (GramGrp(pos=self.POS[pos], subc=subc))
@@ -34,6 +35,8 @@ class DeuEngParser(AbstractParser):
             g = GramGrp()
             self.handle_case_in_brace(outer, g, text)
             return (g,)
+        elif text == 'ppron pl': # to rare for clever handling
+            return (GramGrp(pos='pron', number='pl'))
         else:
             raise ParserError('unrecognized token "{%s}"' % text)
 
@@ -63,14 +66,13 @@ class DeuEngParser(AbstractParser):
             nodes.extend(self.handle_semicolon_in_brace(node_class, outer, text))
         elif ',' in text:
             nodes.extend(self.handle_comma_in_brace(text))
-        elif '/' in text: # only seen that for vt/vi
+        elif '/' in text and not self.CASE_RGX.search(text): # only seen that for vt/vi
             tokens = text.split('/')
             if all(t.strip() in self.POS for t in tokens):
                 nodes.extend(GramGrp(children=\
                     [GramGrp(pos=self.POS[pos.strip()]) for pos in tokens]))
             else:
-                print("ToDo: remove me")
-                #raise ParserError("Encountered unknown (POS) token {%s}" % repr(chunk))
+                raise ParserError("Encountered unknown (POS) token {%s}" % repr(chunk))
 
         else:
             nodes.extend(self.handle_single_token_in_brace(outer, text))

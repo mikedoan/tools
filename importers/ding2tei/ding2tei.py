@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# (C) 2017 Sebastian Humenda
+# (C) 2017-2018 Sebastian Humenda
 # License: GPL3+
 """
 Ding2tei works in two phases:
