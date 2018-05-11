@@ -20,7 +20,6 @@ class DeuEngParser(AbstractParser):
         \+?\s*(Gen|Dat|Akk|conj|Superlativ)\.? # grammatical case
             /?\s*(.*)$ # optional preposition/collocate
         """, re.VERBOSE)
-
     def handle_single_token_in_brace(self, outer, text):
         if text in self.GENDER:
             return (GramGrp(pos='n', gender=text),)
@@ -205,7 +204,9 @@ class DeuEngParser(AbstractParser):
                     try:
                         nodes = self.handle_brace(required_inner, outer, chunk)
                     except ParserError as p:
-                        raise ParserError(p.args[0], 'Chunk parsed: %s' % repr(chunk))
+                        p.lnum = self.get_lineno()
+                        p.chunks = chunk
+                        raise p from None
                     # ToDo: that should be useless, but not all braces are parsed yet
                     for node in nodes:
                         if isinstance(node, (SemNode)):

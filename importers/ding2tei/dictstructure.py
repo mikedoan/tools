@@ -10,7 +10,15 @@ from fd_import import tokenizer
 from fd_import.tokenizer import ChunkType
 
 class ParserError(Exception):
-    pass
+    def __init__(self, msg, chunks=None, lnum=None):
+        super().__init__(msg)
+        self.lnum = lnum
+        self.chunks = chunks
+
+    def __str__(self):
+        lnum = ('line %i: ' % self.lnum if self.lnum else '')
+        chunks = ('\n    chunks: ' + repr(chunks) if not self.chunks else '')
+        return '%s%s%s' % (lnum, self.args[0], chunks)
 
 
 class SemNode:
@@ -191,7 +199,16 @@ class Entry(SemNode):
 
 
 class AbstractParser:
-    def parse(self, entry):
+    def __init__(self):
+        self.__lnum = None
+
+    def get_lineno(self):
+        """Get the current line number, passed to .parse(). Useful for raising
+        meaningful exceptions."""
+        return self.__lnum
+
+    def parse(self, lnum, entry):
+        self.__lnum = lnum
         is_bar = lambda x: x[0] == ChunkType.VerticalBar
         # iterate over headword: is_headword (bool), translation: is_headword
         info = ((tokenizer.split_list(entry[0], is_bar), True),
@@ -221,7 +238,8 @@ class AbstractParser:
             try:
                 form_nodes.append(self.handle_unprocessed(outer_form))
             except ParserError as p:
-                p.args = list(p.args) + ['list of events ' + repr(events)]
+                p.chunks = events
+                p.lnum = self.get_lineno()
                 raise p
         return form_nodes
 

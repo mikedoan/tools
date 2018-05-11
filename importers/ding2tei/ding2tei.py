@@ -57,9 +57,11 @@ def main(input_path, tei_file, output_directory):
     entries = []
     lnum = None
     with open(input_path, encoding='utf-8') as f:
-        for lnum, line in enumerate(l.strip() for l in f if not l.startswith('#')):
+        for lnum, line in enumerate(l.strip() for l in f):
+            if line.startswith('#'):
+                continue # commented line
             tokens = [tokenizer.tokenize(part, parse_slash=True) for part in line.split(' :: ')]
-            node = tei.entry2xml(t.parse(tokens)) # both headwords + translations
+            node = tei.entry2xml(t.parse(lnum, tokens)) # both headwords + translations
             entries.append(node)
     root = tei.attach_xml_body(tei_file, entries)
 
