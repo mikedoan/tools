@@ -1,16 +1,7 @@
 """Tokenizer for text-only dictionary formats.
 
 To use this library, add your dictionary importer as a subdirectory to
-importers/. Assuming you have an immporter in importers/foo, you would add the
-following snippet to your foo.py to use this module:
-
-    from os.path import abspath, dirname
-    import sys
-
-    sys.path.append(dirname(dirname(abspath(sys.argv[0]))))
-
-    import tokenizer
-
+importers/.
 For the usage, please see the functions and classes defined in this module."""
 
 import enum

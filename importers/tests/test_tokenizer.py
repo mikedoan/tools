@@ -1,9 +1,9 @@
 #pylint: disable=too-many-public-methods,import-error,too-few-public-methods,missing-docstring,unused-variable,multiple-imports
 import unittest
-import tokenizer as tk
-from tokenizer import ChunkType
+from fd_import import tokenizer as tk
+from fd_import.tokenizer import ChunkType
 
-class tests(unittest.TestCase):
+class TestsTokenizer(unittest.TestCase):
     def test_commas_are_detected(self):
         chunks = tk.tokenize('foo, bar')
         self.assertEqual(len(chunks), 3)
@@ -110,14 +110,18 @@ class tests(unittest.TestCase):
         self.assertEqual(tks[0][0], ChunkType.Paren)
 
     def test_only_expressions_with_no_spaces_withing_slash_slash_parsed(self):
-        print("===")
         tks = tk.tokenize('/AB/', parse_slash=True)
-        print("---")
         self.assertEqual(len(tks), 1)
         self.assertEqual(tks[0][0], ChunkType.Slash)
         tks = tk.tokenize('A / B/', parse_slash=True)
         self.assertEqual(len(tks), 1)
         self.assertEqual(tks[0][0], ChunkType.Word)
+
+    def test_slash_takes_precedence_over_brackets(self):
+        tks = tk.tokenize('/{/', parse_slash=True)
+        self.assertEqual(len(tks), 1)
+        self.assertEqual(tks[0][1], '{')
+        
         
      
  
