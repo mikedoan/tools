@@ -21,11 +21,14 @@ api:
 		$(call umount_or_keep)
 	@$(MAKE) -C $(FREEDICT_TOOLS) --no-print-directory api-validation
 
+# allow retrieval of API path from Makefile and from rule below
+get_api_path=$(call exc_pyscript,fd_file_mgr,-a) | tr -d '\n'
 api-path: #! print the output directory to the generated API file (read from configuration) (trailing newline is removed)
-	@$(call exc_pyscript,fd_file_mgr,-a) | tr -d '\n'
+	@$(call get_api_path)
 
 api-validation: #! validate the freedict-database.xml against its RNG schema
-	xmllint --noout --relaxng freedict-database.rng $(shell $(MAKE) api-path)/freedict-database.xml
+	@echo Hi $(call get_api_path)
+	xmllint --noout --relaxng freedict-database.rng $(shell $(call get_api_path))/freedict-database.xml
 
 
 
